@@ -6,6 +6,7 @@ Created on Sun Mar  5 14:14:57 2017
 @author: gtucker
 """
 
+from landlab.graph import DualUniformRectilinearGraph, DualHexGraph
 from landlab import RasterModelGrid, HexModelGrid
 from six import print_
 import json
@@ -91,7 +92,7 @@ def display_grid_data(grid):
         print('')
 
 
-def landlab_grid_to_dict(grid):
+def landlab_grid_to_dict(grid, graph):
     """Turn a Landlab grid into a JSON-like dict."""
     
     # Create the dictionary
@@ -106,6 +107,7 @@ def landlab_grid_to_dict(grid):
         this_node_dict['id'] = n
         this_node_dict['x'] = grid.x_of_node[n]
         this_node_dict['y'] = grid.y_of_node[n]
+        this_node_dict['cell'] = graph.cell_at_node[n]
         this_node_dict['status'] = int(grid.status_at_node[n])
         links_list = []
         for l in grid.links_at_node[n]:  # IDs of links (-1 = none)
@@ -119,6 +121,10 @@ def landlab_grid_to_dict(grid):
         for nbr in grid.neighbors_at_node[n]:  # ID of neighbor node (-1 = none)
             nbrs_list.append(nbr)
         this_node_dict['neighbor_nodes'] = nbrs_list
+        patch_list = []
+        for p in graph.patches_at_node[n]:  # patches that have node as vertex
+            patch_list.append(p)
+        this_node_dict['patches'] = patch_list
         
         # Append the dict to the list
         my_list.append(this_node_dict)
@@ -131,22 +137,26 @@ def landlab_grid_to_dict(grid):
     for n in range(grid.number_of_links):
         
         # Create a dictionary with data for this particular link
-        this_list_dict = {}
-        this_list_dict['id'] = n
-        this_list_dict['x'] = grid.x_of_link[n]
-        this_list_dict['y'] = grid.y_of_link[n]
-        this_list_dict['tail_node'] = grid.node_at_link_tail[n]
-        this_list_dict['head_node'] = grid.node_at_link_head[n]
-        this_list_dict['face_id'] = grid.face_at_link[n]
-        this_list_dict['length'] = grid.length_of_link[n]
+        this_link_dict = {}
+        this_link_dict['id'] = n
+        this_link_dict['x'] = grid.x_of_link[n]
+        this_link_dict['y'] = grid.y_of_link[n]
+        this_link_dict['face_id'] = grid.face_at_link[n]
+        this_link_dict['length'] = grid.length_of_link[n]
+        this_link_dict['tail_node'] = grid.node_at_link_tail[n]
+        this_link_dict['head_node'] = grid.node_at_link_head[n]
+        node_list = []
+        for nn in graph.nodes_at_link[n]:  # IDs of 2 nodes
+            node_list.append(nn)
+        this_link_dict['nodes'] = node_list
         patch_list = []
         for p in grid.patches_at_link[n]:  # IDs of patches left and right
             patch_list.append(p)
-        this_list_dict['patches'] = patch_list
-        this_list_dict['status'] = int(grid.status_at_link[n])  # Boundary status
+        this_link_dict['patches'] = patch_list
+        this_link_dict['status'] = int(grid.status_at_link[n])  # Boundary status
         
         # Append the dict to the list
-        my_list.append(this_list_dict)
+        my_list.append(this_link_dict)
 
     # ... and add it to the dict
     grid_dict['links'] = my_list
@@ -161,6 +171,10 @@ def landlab_grid_to_dict(grid):
         this_cell_dict['x'] = grid.x_of_cell[n]
         this_cell_dict['y'] = grid.y_of_cell[n]
         this_cell_dict['area'] = grid.area_of_cell[n]
+        corners_list = []
+        for c in graph.corners_at_cell[n]:  # IDs of cell's corners (vertices)
+            corners_list.append(c)
+        this_cell_dict['corners'] = corners_list
         faces_list = []
         for f in grid.faces_at_cell[n]:  # IDs of cell's faces
             faces_list.append(f)
@@ -173,6 +187,34 @@ def landlab_grid_to_dict(grid):
     # ... and add it to the dict
     grid_dict['cells'] = my_list
 
+    # Create a list ("array" in JSON-speak) of CORNER information
+    my_list = []
+    for n in range(graph.number_of_corners):
+        
+        # Create a dictionary with data for this particular face
+        this_corner_dict = {}
+        this_corner_dict['id'] = n
+        this_corner_dict['x'] = graph.x_of_corner[n]
+        this_corner_dict['y'] = graph.y_of_corner[n]
+        cells_list = []
+        for c in graph.cells_at_corner[n]:  # IDs of cells w corner as vertex
+            cells_list.append(c)
+        this_corner_dict['cells'] = cells_list
+        faces_list = []
+        for f in graph.faces_at_corner[n]:  # faces connected to this corner
+            faces_list.append(f)
+        this_corner_dict['faces'] = faces_list
+        faces_list = []
+        for f in graph.face_dirs_at_corner[n]:  # dir of each face rel to cnr
+            faces_list.append(int(f))
+        this_corner_dict['face_dirs'] = faces_list
+
+        # Append the dict to the list
+        my_list.append(this_corner_dict)
+
+    # ... and add it to the dict
+    grid_dict['faces'] = my_list
+
     # Create a list ("array" in JSON-speak) of FACE information
     my_list = []
     for n in range(grid.number_of_faces):
@@ -182,7 +224,18 @@ def landlab_grid_to_dict(grid):
         this_face_dict['id'] = n
         this_face_dict['x'] = grid.x_of_face[n]
         this_face_dict['y'] = grid.y_of_face[n]
-        this_face_dict['area'] = grid.width_of_face[n]
+        cells_list = []
+        for c in graph.cells_at_face[n]:  # two cells that share this face
+            cells_list.append(c)
+        this_face_dict['cells'] = cells_list
+        this_face_dict['tail_corner'] = graph.corner_at_face_tail[n]
+        this_face_dict['head_corner'] = graph.corner_at_face_head[n]
+        corners_list = []
+        for c in graph.corners_at_face[n]:  # two cells that share this face
+            corners_list.append(c)
+        this_face_dict['corners'] = corners_list
+        this_face_dict['length'] = graph.length_of_face[n]
+        this_face_dict['link'] = graph.link_at_face[n]
 
         # Append the dict to the list
         my_list.append(this_face_dict)
@@ -197,10 +250,15 @@ def landlab_grid_to_dict(grid):
         # Create a dictionary with data for this particular patch
         this_patch_dict = {}
         this_patch_dict['id'] = n
-        links_list = []
+        this_patch_dict['area'] = graph.area_of_patch[n]
+        link_list = []
         for ln in grid.links_at_patch[n]:
-            links_list.append(ln)
-        this_patch_dict['links'] = links_list
+            link_list.append(ln)
+        this_patch_dict['links'] = link_list
+        node_list = []
+        for nn in graph.nodes_at_patch[n]:
+            node_list.append(nn)
+        this_patch_dict['nodes'] = node_list
 
         # Append the dict to the list
         my_list.append(this_patch_dict)
@@ -217,26 +275,29 @@ def write_grid_dict_to_json_file(grid_dict, filename):
     json.dump(grid_dict, fp, sort_keys=True, indent=4, separators=(',', ': '))
 
 
-# Make a raster grid for testing
-rg = RasterModelGrid((NUMROWS, NUMCOLS), SPACING)
+# Make a raster graph and grid for testing
+rgrid = RasterModelGrid((NUMROWS, NUMCOLS), SPACING)
+rgraph = DualUniformRectilinearGraph((NUMROWS, NUMCOLS),
+                                    spacing=(SPACING, SPACING))
 
 print('3x4 RASTER GRID:')
 print('')
-display_grid_data(rg)
+display_grid_data(rgrid)
 
-grid_dict = landlab_grid_to_dict(rg)
+grid_dict = landlab_grid_to_dict(rgrid, rgraph)
 
 write_grid_dict_to_json_file(grid_dict, 'landlab_raster_grid_example.json')
 
 
 # Make a hex grid for testing
-hg = HexModelGrid(NUMROWS, NUMCOLS, SPACING)
+hgrid = HexModelGrid(NUMROWS, NUMCOLS, SPACING)
+hgraph = DualHexGraph((NUMROWS, NUMCOLS), node_layout='hex', spacing=SPACING )
 
 print('HEX GRID:')
 print('')
-display_grid_data(hg)
+display_grid_data(hgrid)
 
-grid_dict = landlab_grid_to_dict(hg)
+grid_dict = landlab_grid_to_dict(hgrid, hgraph)
 
 write_grid_dict_to_json_file(grid_dict, 'landlab_hex_grid_example.json')
 
