@@ -213,7 +213,7 @@ def landlab_grid_to_dict(grid, graph):
         my_list.append(this_corner_dict)
 
     # ... and add it to the dict
-    grid_dict['faces'] = my_list
+    grid_dict['corners'] = my_list
 
     # Create a list ("array" in JSON-speak) of FACE information
     my_list = []
